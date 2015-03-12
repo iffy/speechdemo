@@ -3,7 +3,32 @@
   <head>
     <title>Speech</title>
     <style>
+      h1.title {
+        text-align: center;
+        font-family: Arial;
+      }
+      .description {
+        padding: 1rem;
+        margin: 0 auto;
+        width: 30rem;
+      }
+      .controls {
+        text-align: center;
+      }
+      .controls button {
+        color: #fff;
+        background: #08c;
+        margin-bottom: 1rem;
+        display: inline-block;
+        border-radius: 4px;
+        box-sizing: border-box;
+        padding: 1rem 2rem;
+        text-align: center;
+        border: 1px solid #08c;
+        font-size: 16px;
+      }
       .arena {
+        margin: 1rem auto;
         position: relative;
         background: url('sand.jpg');
         background-size: cover;
@@ -37,16 +62,30 @@
   </head>
   <body ng-controller="AppController as ctrl">
 
-    <button ng-click="ctrl.startSpeech();">Start</button>
-    <button ng-click="ctrl.stopSpeech();">Stop</button>
+    <h1 class="title">Deaf Hippo</h1>
 
-    {{ ctrl.last_command }} {{ ctrl.facing }}
+    <p class="description">
+      This is a silly game for my two-year-old daughter to maybe learn left from right.  It's also an experiment with the proposed Web Speech API.  I might make improvements to the game, or I might not.  She seems to like the flaws of the game as much as anything.
+    </p>
+
+    <p class="description">
+      Say things like <i>"go up"</i> or <i>"move down."</i>  React naturally to see if there's other commands (or read the source).
+    </p>
+
+    <div class="controls">
+      <button ng-click="ctrl.startSpeech();" ng-if="!ctrl.Speech.is_running">Start</button>
+      <button ng-click="ctrl.stopSpeech();" ng-if="ctrl.Speech.is_running">Stop</button>
+      <br/>
+      <input type="checkbox" ng-model="ctrl.silly_mode"> Silly mode
+    </div>
 
     <div class="score">{{ ctrl.score }}</div>
 
     <div class="arena" ng-style="ctrl.arena_style">
       <div ng-repeat="obj in ctrl.game_objects" class="game-object {{ obj.cls }}" ng-style="obj.style"></div>
     </div>
+
+    {{ ctrl.last_command }} {{ ctrl.facing }}
 
   </body>
   <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.14/angular.min.js"></script>
@@ -59,11 +98,11 @@
       var sp = new webkitSpeechRecognition();
       sp.lang = 'en-US';
       sp.continuous = true;
-      // really funny if you do true
-      sp.interimResults = false;
+      sp.interimResults = true;
 
       var _handlers = [];
       var Speech = {};
+      Speech.is_running = false;
       Speech.registerHandler = function(handler) {
         _handlers.push(handler);
       }
@@ -73,12 +112,30 @@
       Speech.stop = function() {
         sp.stop();
       }
+      Speech.changeInterim = function(newval) {
+        sp.interimResults = newval;
+      }
       sp.onresult = function(ev) {
+        var parts = [];
+        parts.push({
+          transcript: ev.results[ev.resultIndex][0].transcript,
+          isFinal: ev.results[ev.resultIndex].isFinal,
+        });
         _handlers.forEach(function(handler) {
           $rootScope.$apply(function() {
-            handler(ev.results[ev.resultIndex][0].transcript);  
+            handler(parts);
           })
         })
+      }
+      sp.onstart = function() {
+        $rootScope.$apply(function() {
+          Speech.is_running = true;
+        });
+      }
+      sp.onend = function() {
+        $rootScope.$apply(function() {
+          Speech.is_running = false;
+        });
       }
       return Speech;
     });
@@ -87,12 +144,14 @@
   // App
   //------------------------------------------------------------------------------
   var app = angular.module('app', ['speech']);
-  app.controller('AppController', function(Speech) {
+  app.controller('AppController', function($scope, Speech) {
     var ctrl = this;
+    ctrl.Speech = Speech;
     ctrl.last_command = '';
     ctrl.space_size = 64;
-    ctrl.rows = 8;
-    ctrl.cols = 8;
+    ctrl.rows = 5;
+    ctrl.cols = 5;
+    ctrl.silly_mode = false;
 
     ctrl.arena_style = {
       width: (ctrl.cols * ctrl.space_size) + 'px',
@@ -112,7 +171,7 @@
     ctrl.game_objects.push(ctrl.player);
 
     var existing = {};
-    var toadd = 10;
+    var toadd = 6;
     while (toadd) {
       var x = Math.floor(Math.random() * ctrl.cols);
       var y = Math.floor(Math.random() * ctrl.rows);
@@ -138,18 +197,30 @@
     }
     
     function gotSpeech(speech) {
-      speech = speech.trim();
-      ctrl.last_command = speech;
+      speech.forEach(function(thing) {
+        if (thing.isFinal || ctrl.silly_mode) {
+          handleCommand(thing.transcript);
+        }
+      });
+    }
 
-      var m = speech.match(/(up|down|left|right)/);
+    function handleCommand(command) {
+      command = command.trim();
+      ctrl.last_command = command;
+
+      var m = command.match(/(up|down|left|right)/);
       if (m) {
         ctrl.move(m[1]);
       }
 
-      if (speech.match(/go back|back|not that way|other way/)) {
+      if (command.match(/go back|back|not that way|other way/)) {
         ctrl.move(opposites[ctrl.facing]);
-      } else if (speech.match(/more|again|one more|keep going|even more/)) {
+      } else if (command.match(/more|again|one more|keep going|even more/)) {
         ctrl.move(ctrl.facing);
+      } else if (command.match(/just go|anywhere|cow|run away/)) {
+        var opts = Object.keys(opposites);
+        var choice = opts[Math.floor(Math.random() * opts.length)];
+        ctrl.move(choice);
       }
     }
     Speech.registerHandler(gotSpeech);
@@ -160,9 +231,7 @@
       Speech.stop();
     }
 
-
     ctrl.move = function(direction) {
-      console.log('moving', direction);
       if (direction == 'up') {
         ctrl.player.y -= ctrl.step;
       } else if (direction == 'down') {
