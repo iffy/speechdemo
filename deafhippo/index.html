@@ -1,0 +1,211 @@
+<!doctype html>
+<html ng-app="app">
+  <head>
+    <title>Speech</title>
+    <style>
+      .arena {
+        position: relative;
+        background: url('sand.jpg');
+        background-size: cover;
+      }
+      .score {
+        font-size: 2rem;
+        font-family: arial;
+        padding: 1rem;
+        text-align: center;
+      }
+      .game-object {
+        position: absolute;
+        width: 64px;
+        height: 64px;
+        background-size: cover;
+        transition: top 1s, left 1s;
+      }
+      .game-object.player {
+        background-image: url('hippo.small.png');
+      }
+      .game-object.medal {
+        background-image: url('medal.png');
+        opacity: 1;
+        transition: opacity 1s;
+      }
+      .game-object.captured {
+        background-image: url('medal.png');
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body ng-controller="AppController as ctrl">
+
+    <button ng-click="ctrl.startSpeech();">Start</button>
+    <button ng-click="ctrl.stopSpeech();">Stop</button>
+
+    {{ ctrl.last_command }} {{ ctrl.facing }}
+
+    <div class="score">{{ ctrl.score }}</div>
+
+    <div class="arena" ng-style="ctrl.arena_style">
+      <div ng-repeat="obj in ctrl.game_objects" class="game-object {{ obj.cls }}" ng-style="obj.style"></div>
+    </div>
+
+  </body>
+  <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.14/angular.min.js"></script>
+  <script type="text/javascript">
+  //------------------------------------------------------------------------------
+  // Sound
+  //------------------------------------------------------------------------------
+  var app = angular.module('speech', []);
+    app.factory('Speech', function($rootScope) {
+      var sp = new webkitSpeechRecognition();
+      sp.lang = 'en-US';
+      sp.continuous = true;
+      // really funny if you do true
+      sp.interimResults = false;
+
+      var _handlers = [];
+      var Speech = {};
+      Speech.registerHandler = function(handler) {
+        _handlers.push(handler);
+      }
+      Speech.start = function() {
+        sp.start();
+      }
+      Speech.stop = function() {
+        sp.stop();
+      }
+      sp.onresult = function(ev) {
+        _handlers.forEach(function(handler) {
+          $rootScope.$apply(function() {
+            handler(ev.results[ev.resultIndex][0].transcript);  
+          })
+        })
+      }
+      return Speech;
+    });
+
+  //------------------------------------------------------------------------------
+  // App
+  //------------------------------------------------------------------------------
+  var app = angular.module('app', ['speech']);
+  app.controller('AppController', function(Speech) {
+    var ctrl = this;
+    ctrl.last_command = '';
+    ctrl.space_size = 64;
+    ctrl.rows = 8;
+    ctrl.cols = 8;
+
+    ctrl.arena_style = {
+      width: (ctrl.cols * ctrl.space_size) + 'px',
+      height: (ctrl.rows * ctrl.space_size) + 'px',
+    };
+
+    ctrl.step = 1;
+    ctrl.facing = 'right';
+    ctrl.score = 0;
+    ctrl.game_objects = [];
+
+    ctrl.player = {
+      x: Math.floor(ctrl.cols/2),
+      y: Math.floor(ctrl.rows/2),
+      cls: 'player'
+    }
+    ctrl.game_objects.push(ctrl.player);
+
+    var existing = {};
+    var toadd = 10;
+    while (toadd) {
+      var x = Math.floor(Math.random() * ctrl.cols);
+      var y = Math.floor(Math.random() * ctrl.rows);
+      var key = '' + x + ',' + y;
+      if (existing[key]) {
+        continue;
+      } else {
+        existing[key] = true;
+        toadd -= 1;
+        ctrl.game_objects.push({
+          x: x,
+          y: y,
+          cls: 'medal',
+        })
+      }
+    }
+
+    var opposites = {
+      'up': 'down',
+      'down': 'up',
+      'right': 'left',
+      'left': 'right',
+    }
+    
+    function gotSpeech(speech) {
+      speech = speech.trim();
+      ctrl.last_command = speech;
+
+      var m = speech.match(/(up|down|left|right)/);
+      if (m) {
+        ctrl.move(m[1]);
+      }
+
+      if (speech.match(/go back|back|not that way|other way/)) {
+        ctrl.move(opposites[ctrl.facing]);
+      } else if (speech.match(/more|again|one more|keep going|even more/)) {
+        ctrl.move(ctrl.facing);
+      }
+    }
+    Speech.registerHandler(gotSpeech);
+    ctrl.startSpeech = function() {
+      Speech.start();
+    }
+    ctrl.stopSpeech = function() {
+      Speech.stop();
+    }
+
+
+    ctrl.move = function(direction) {
+      console.log('moving', direction);
+      if (direction == 'up') {
+        ctrl.player.y -= ctrl.step;
+      } else if (direction == 'down') {
+        ctrl.player.y += ctrl.step;
+      } else if (direction == 'left') {
+        ctrl.player.x -= ctrl.step;
+      } else if (direction == 'right') {
+        ctrl.player.x += ctrl.step;
+      }
+      ctrl.facing = direction;
+      ctrl.scoreMaybe();
+      ctrl.recomputeStyles();
+    }
+
+    ctrl.scoreMaybe = function() {
+      // nope, not efficient
+      ctrl.game_objects.forEach(function(obj) {
+        if (obj.x == ctrl.player.x && obj.y == ctrl.player.y) {
+          ctrl.collide(ctrl.player, obj);
+        }
+      })
+    }
+
+    ctrl.collide = function(player, thing) {
+      if (player === thing) {
+        // do nothing
+      } else {
+        thing.cls = 'captured medal';
+        ctrl.score += 1;
+      }
+    }
+
+    ctrl.recomputeStyles = function() {
+      ctrl.game_objects.forEach(function(game_object) {
+        if (!game_object.style) {
+          game_object.style = {};
+        }
+        game_object.style.left = (game_object.x * ctrl.space_size) + 'px';
+        game_object.style.top = (game_object.y * ctrl.space_size) + 'px';
+      })
+    }
+    ctrl.recomputeStyles();
+    return ctrl;
+  })
+  </script>
+</html>
